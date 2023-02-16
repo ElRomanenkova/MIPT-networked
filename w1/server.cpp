@@ -18,7 +18,7 @@ int main(int argc, const char **argv)
 
   const char *c_port = "2000";
   addrinfo clientAddrInfo;
-  int c_sfd = 0;
+  int c_sfd = -1;
 
   printf("Listening!\n");
 
@@ -64,10 +64,13 @@ int main(int argc, const char **argv)
           {
             printf("%s\n", buffer + 1);
 
-            std::string response = "Your message was received!";
-            ssize_t res = sendto(c_sfd, response.c_str(), response.size(), 0, clientAddrInfo.ai_addr, clientAddrInfo.ai_addrlen);
-            if (res == -1)
-              std::cout << strerror(errno) << std::endl;
+            if (c_sfd > 0)
+            {
+              std::string response = "Your message was received!";
+              ssize_t res = sendto(c_sfd, response.c_str(), response.size(), 0, clientAddrInfo.ai_addr, clientAddrInfo.ai_addrlen);
+              if (res == -1)
+                std::cout << strerror(errno) << std::endl;
+            }
 
             break;
           }

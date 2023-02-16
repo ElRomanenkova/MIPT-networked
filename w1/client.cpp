@@ -15,6 +15,7 @@ int send_keepalive_messages(int sfd, addrinfo addrInfo, int init_num)
   while (true)
   {
     std::this_thread::sleep_for(std::chrono::milliseconds(20000));
+    // little reference to Rick and Morty
     std::string input = std::to_string(MessageType::KEEPALIVE) + std::to_string(init_num) + " wanna be alive, I am alive! Alive, I tell you...";
     ssize_t res = sendto(sfd, input.c_str(), input.size(), 0, addrInfo.ai_addr, addrInfo.ai_addrlen);
     if (res == -1)
