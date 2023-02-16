@@ -9,13 +9,18 @@
 
 int main(int argc, const char **argv)
 {
-  const char *port = "2022";
+  const char *port = "2023";
 
   int sfd = create_dgram_socket(nullptr, port, nullptr);
 
   if (sfd == -1)
     return 1;
-  printf("listening!\n");
+
+  const char *c_port = "2000";
+  addrinfo clientAddrInfo;
+  int c_sfd = 0;
+
+  printf("Listening!\n");
 
   while (true)
   {
@@ -24,7 +29,7 @@ int main(int argc, const char **argv)
     FD_SET(sfd, &readSet);
 
     timeval timeout = { 0, 100000 }; // 100 ms
-    select(sfd + 1, &readSet, NULL, NULL, &timeout);
+    select(sfd + 1, &readSet, nullptr, nullptr, &timeout);
 
 
     if (FD_ISSET(sfd, &readSet))
@@ -34,8 +39,43 @@ int main(int argc, const char **argv)
       memset(buffer, 0, buf_size);
 
       ssize_t numBytes = recvfrom(sfd, buffer, buf_size - 1, 0, nullptr, nullptr);
+
       if (numBytes > 0)
-        printf("%s\n", buffer); // assume that buffer is a string
+      {
+        auto message_type = buffer[0];
+
+        switch (message_type)
+        {
+          case '0':  //INIT
+          {
+            printf("Welcome new user: %s\n", buffer + 1);
+            c_sfd = create_dgram_socket("localhost", c_port, &clientAddrInfo);
+
+            if (c_sfd == -1)
+              return 1;
+            break;
+          }
+
+          case '1':  //KEEPALIVE
+            printf("KEEPALIVE: %s\n", buffer + 1);
+            break;
+
+          case '2':  //DATA
+          {
+            printf("%s\n", buffer + 1);
+
+            std::string response = "Your message was received!";
+            ssize_t res = sendto(c_sfd, response.c_str(), response.size(), 0, clientAddrInfo.ai_addr, clientAddrInfo.ai_addrlen);
+            if (res == -1)
+              std::cout << strerror(errno) << std::endl;
+
+            break;
+          }
+
+          default:
+            break;
+        }
+      }
     }
   }
   return 0;
