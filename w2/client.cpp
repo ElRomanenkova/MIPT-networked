@@ -1,28 +1,39 @@
 #include <enet/enet.h>
 #include <iostream>
+#include <string.h>
+#include <thread>
+#include <random>
 
-void send_fragmented_packet(ENetPeer *peer)
+void processing_async_input(bool* isStart, ENetPeer* lobby)
 {
-  const char *baseMsg = "Stay awhile and listen. ";
-  const size_t msgLen = strlen(baseMsg);
+  printf("Press 's' if you want to enter the server: ");
 
-  const size_t sendSize = 2500;
-  char *hugeMessage = new char[sendSize];
-  for (size_t i = 0; i < sendSize; ++i)
-    hugeMessage[i] = baseMsg[i % msgLen];
-  hugeMessage[sendSize-1] = '\0';
+  while (lobby)
+  {
+    std::string input;
+    std::getline(std::cin, input);
 
-  ENetPacket *packet = enet_packet_create(hugeMessage, sendSize, ENET_PACKET_FLAG_RELIABLE);
-  enet_peer_send(peer, 0, packet);
-
-  delete[] hugeMessage;
+    if (input == "s")
+    {
+      printf("Connecting to server...\n");
+      *isStart = true;
+      break;
+    }
+  }
 }
 
-void send_micro_packet(ENetPeer *peer)
+void send_server_sys_time(ENetPeer* server, uint32_t sys_time)
 {
-  const char *msg = "dv/dt";
-  ENetPacket *packet = enet_packet_create(msg, strlen(msg) + 1, ENET_PACKET_FLAG_UNSEQUENCED);
-  enet_peer_send(peer, 1, packet);
+  std::random_device dev;
+  std::mt19937 gen(dev());
+  std::uniform_int_distribution<std::mt19937::result_type> dist(0, 1000);
+  int client_rand = dist(gen);
+
+  std::string buffer = "My time: ";
+
+  buffer += std::to_string(sys_time + client_rand);
+  ENetPacket *packet = enet_packet_create(buffer.c_str(), strlen(buffer.c_str()) + 1, ENET_PACKET_FLAG_RELIABLE);
+  enet_peer_send(server, 0, packet);
 }
 
 int main(int argc, const char **argv)
@@ -33,28 +44,34 @@ int main(int argc, const char **argv)
     return 1;
   }
 
-  ENetHost *client = enet_host_create(nullptr, 1, 2, 0, 0);
+  ENetHost *client = enet_host_create(nullptr, 2, 2, 0, 0);
   if (!client)
   {
     printf("Cannot create ENet client\n");
     return 1;
   }
 
-  ENetAddress address;
-  enet_address_set_host(&address, "localhost");
-  address.port = 10887;
+  ENetAddress lobby_address;
+  enet_address_set_host(&lobby_address, "localhost");
+  lobby_address.port = 10887;
 
-  ENetPeer *lobbyPeer = enet_host_connect(client, &address, 2, 0);
+  ENetPeer *lobbyPeer = enet_host_connect(client, &lobby_address, 2, 0);
   if (!lobbyPeer)
   {
     printf("Cannot connect to lobby");
     return 1;
   }
 
+  ENetPeer *serverPeer = nullptr;
+
+  bool isStart = false;
+  bool isServerConnected = false;
+  std::thread starting_session(processing_async_input, &isStart, lobbyPeer);
+
   uint32_t timeStart = enet_time_get();
   uint32_t lastFragmentedSendTime = timeStart;
-  uint32_t lastMicroSendTime = timeStart;
   bool connected = false;
+
   while (true)
   {
     ENetEvent event;
@@ -67,27 +84,60 @@ int main(int argc, const char **argv)
         connected = true;
         break;
       case ENET_EVENT_TYPE_RECEIVE:
-        printf("Packet received '%s'\n", event.packet->data);
+        if (event.packet->data[0] == '#')
+        {
+          auto data = reinterpret_cast<char *>(event.packet->data);
+          uint16_t server_port = std::atoi(data + 1);
+
+          ENetAddress server_address;
+          enet_address_set_host(&server_address, "localhost");
+          server_address.port = server_port;
+
+          serverPeer = enet_host_connect(client, &server_address, 2, 0);
+          if (!serverPeer)
+          {
+            printf("Cannot connect to lobby");
+            return 1;
+          }
+
+          isServerConnected = true;
+          printf("Connected to server successfully!\n");
+        }
+        else
+          printf("> '%s'\n", event.packet->data);
+
         enet_packet_destroy(event.packet);
         break;
+
       default:
         break;
       };
     }
+
     if (connected)
     {
-      uint32_t curTime = enet_time_get();
-      if (curTime - lastFragmentedSendTime > 1000)
+      if (isStart)
       {
-        lastFragmentedSendTime = curTime;
-        send_fragmented_packet(lobbyPeer);
+        std::string buffer = "#Start";
+        ENetPacket *packet = enet_packet_create(buffer.c_str(), strlen(buffer.c_str()) + 1, ENET_PACKET_FLAG_RELIABLE);
+        enet_peer_send(lobbyPeer, 0, packet);
+        isStart = false;
       }
-      if (curTime - lastMicroSendTime > 100)
+
+      if (isServerConnected)
       {
-        lastMicroSendTime = curTime;
-        send_micro_packet(lobbyPeer);
+        uint32_t curTime = enet_time_get();
+        if (curTime - lastFragmentedSendTime > 10000)
+        {
+          lastFragmentedSendTime = curTime;
+          send_server_sys_time(serverPeer, curTime);
+        }
       }
     }
   }
+
+  starting_session.join();
+
+  atexit(enet_deinitialize);
   return 0;
 }
