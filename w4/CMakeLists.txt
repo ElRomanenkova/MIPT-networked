@@ -11,11 +11,13 @@ SET(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(W4_SOURCES
     main.cpp
     protocol.cpp
+    bitstream.h
     )
 
 set(W4_SERVER_SOURCES
     server.cpp
     protocol.cpp
+    bitstream.h
     )
 
 
@@ -32,7 +34,7 @@ target_link_libraries(w4 PUBLIC raylib enet)
 
 add_executable(w4_server ${W4_SERVER_SOURCES})
 target_link_libraries(w4_server PUBLIC project_options project_warnings)
-target_link_libraries(w4_server PUBLIC enet)
+target_link_libraries(w4_server PUBLIC raylib enet)
 
 if(MSVC)
   target_link_libraries(w4 PUBLIC ws2_32.lib winmm.lib)

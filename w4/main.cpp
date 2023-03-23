@@ -4,7 +4,7 @@
 #include <enet/enet.h>
 
 #include <vector>
-#include "entity.h"
+//#include "entity.h"
 #include "protocol.h"
 
 
@@ -30,14 +30,15 @@ void on_set_controlled_entity(ENetPacket *packet)
 void on_snapshot(ENetPacket *packet)
 {
   uint16_t eid = invalid_entity;
-  float x = 0.f; float y = 0.f;
-  deserialize_snapshot(packet, eid, x, y);
+  float x = 0.f; float y = 0.f; float size = 0.f;
+  deserialize_snapshot(packet, eid, x, y, size);
   // TODO: Direct adressing, of course!
   for (Entity &e : entities)
     if (e.eid == eid)
     {
       e.x = x;
       e.y = y;
+      e.size = size;
     }
 }
 
@@ -58,7 +59,7 @@ int main(int argc, const char **argv)
 
   ENetAddress address;
   enet_address_set_host(&address, "127.0.0.1");
-  address.port = 10131;
+  address.port = 10132;
 
   ENetPeer *serverPeer = enet_host_connect(client, &address, 2, 0);
   if (!serverPeer)
@@ -82,7 +83,7 @@ int main(int argc, const char **argv)
 
   Camera2D camera = { {0, 0}, {0, 0}, 0.f, 1.f };
   camera.target = Vector2{ 0.f, 0.f };
-  camera.offset = Vector2{ width * 0.5f, height * 0.5f };
+  camera.offset = Vector2{ static_cast<float>(width) * 0.5f, static_cast<float>(height) * 0.5f };
   camera.rotation = 0.f;
   camera.zoom = 1.f;
 
@@ -115,11 +116,14 @@ int main(int argc, const char **argv)
           on_snapshot(event.packet);
           break;
         };
+        enet_packet_destroy(event.packet);
         break;
       default:
         break;
       };
     }
+
+
     if (my_entity != invalid_entity)
     {
       bool left = IsKeyDown(KEY_LEFT);
@@ -131,8 +135,8 @@ int main(int argc, const char **argv)
         if (e.eid == my_entity)
         {
           // Update
-          e.x += ((left ? -dt : 0.f) + (right ? +dt : 0.f)) * 100.f;
-          e.y += ((up ? -dt : 0.f) + (down ? +dt : 0.f)) * 100.f;
+          e.x += ((left ? -dt : 0.f) + (right ? +dt : 0.f)) * 120.f;
+          e.y += ((up ? -dt : 0.f) + (down ? +dt : 0.f)) * 120.f;
 
           // Send
           send_entity_state(serverPeer, my_entity, e.x, e.y);
@@ -145,8 +149,15 @@ int main(int argc, const char **argv)
       BeginMode2D(camera);
         for (const Entity &e : entities)
         {
-          const Rectangle rect = {e.x, e.y, 10.f, 10.f};
-          DrawRectangleRec(rect, GetColor(e.color));
+          if (e.type == Entity::Type::PLAYER)
+          {
+            const Rectangle rect = {e.x, e.y, e.size, e.size};
+            DrawRectangleRec(rect, e.color);
+          }
+          else if (e.type == Entity::Type::AI_TYPE)
+          {
+            DrawCircle(static_cast<int>(e.x), static_cast<int>(e.y), e.size / 2.f, e.color);
+          }
         }
 
       EndMode2D();
