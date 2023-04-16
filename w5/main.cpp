@@ -6,22 +6,78 @@
 #include <math.h>
 
 #include <vector>
+#include <map>
+#include <deque>
 #include "entity.h"
 #include "protocol.h"
 
 
 static std::vector<Entity> entities;
+static std::map<uint16_t, std::deque<Snapshot>> snapshots;
 static uint16_t my_entity = invalid_entity;
+
+static std::vector<TickSnapshot> snapshotsHistory;
+static std::vector<TickInput> inputsHistory;
+
+void interpolate_entity(Entity& entity, uint32_t cur_time)
+{
+//  auto cur_time = enet_time_get();
+  auto snap_time = snapshots[entity.eid][1].time;
+
+  while (cur_time > snap_time and snapshots[entity.eid].size() > 2) {
+    snapshots[entity.eid].pop_front();
+    snap_time = snapshots[entity.eid][1].time;
+  }
+
+  Snapshot& cur_snap = snapshots[entity.eid][1];
+  Snapshot& prev_snap = snapshots[entity.eid][0];
+//  printf("cur - %u, prev - %u\n", cur_snap.time, prev_snap.time);
+
+  float t = static_cast<float>(cur_time - prev_snap.time) / static_cast<float>(cur_snap.time - prev_snap.time);
+  printf("%f - %f\n", t, 1.f - t);
+
+  entity.x = prev_snap.x + t * (cur_snap.x - prev_snap.x);
+  entity.y = prev_snap.y + t * (cur_snap.y - prev_snap.y);
+  entity.ori = prev_snap.ori + t * (cur_snap.ori - prev_snap.ori);
+}
+
+void resimulate_entity(TickSnapshot snap, Entity& entity)
+{
+  entity.x = snap.x;
+  entity.y = snap.y;
+  entity.ori = snap.ori;
+
+  for (const auto& input : inputsHistory) {
+    entity.thr = input.thr;
+    entity.steer = input.steer;
+    simulate_entity(entity, DT);
+  }
+}
+
+void clear_history(uint32_t tick)
+{
+  std::erase_if(snapshotsHistory, [tick](auto &snapshot){
+    return snapshot.tick < tick;
+  });
+  std::erase_if(inputsHistory, [tick](auto &input){
+    return input.tick < tick;
+  });
+}
 
 void on_new_entity_packet(ENetPacket *packet)
 {
   Entity newEntity;
   deserialize_new_entity(packet, newEntity);
+//  printf("---> new ent tick - %u\n", newEntity.last_tick);
   // TODO: Direct adressing, of course!
   for (const Entity &e : entities)
     if (e.eid == newEntity.eid)
       return; // don't need to do anything, we already have entity
   entities.push_back(newEntity);
+
+  if (newEntity.eid != my_entity) {
+    snapshots[newEntity.eid].push_back({enet_time_get(), newEntity.x, newEntity.y, newEntity.ori});
+  }
 }
 
 void on_set_controlled_entity(ENetPacket *packet)
@@ -32,16 +88,27 @@ void on_set_controlled_entity(ENetPacket *packet)
 void on_snapshot(ENetPacket *packet)
 {
   uint16_t eid = invalid_entity;
+  uint32_t tick = 0;
   float x = 0.f; float y = 0.f; float ori = 0.f;
-  deserialize_snapshot(packet, eid, x, y, ori);
-  // TODO: Direct adressing, of course!
-  for (Entity &e : entities)
-    if (e.eid == eid)
-    {
-      e.x = x;
-      e.y = y;
-      e.ori = ori;
+  deserialize_snapshot(packet, eid, x, y, ori, tick);
+
+  if (eid != my_entity) {
+    auto t = enet_time_get() + OFFSET;
+    snapshots[eid].push_back({t, x, y, ori});
+//    printf("\n---> snapshot: %u, %u, %u, pos: %f, %f\n", t, eid, my_entity, x, y);
+  }
+  else {
+    if (snapshotsHistory.empty() or inputsHistory.empty())
+      return;
+
+    clear_history(tick - 1);
+    auto last_snap = snapshotsHistory.front();
+
+    if (last_snap.x != x or last_snap.y != y or last_snap.ori != ori) {
+      TickSnapshot snap = {tick, x, y, ori};
+      resimulate_entity(snap, entities[my_entity]);
     }
+  }
 }
 
 int main(int argc, const char **argv)
@@ -94,10 +161,14 @@ int main(int argc, const char **argv)
   SetTargetFPS(60);               // Set our game to run at 60 frames-per-second
 
   bool connected = false;
+  uint32_t prev_time = enet_time_get();
+
   while (!WindowShouldClose())
   {
-    float dt = GetFrameTime();
+
     ENetEvent event;
+    uint32_t cur_time = enet_time_get();
+
     while (enet_host_service(client, &event, 0) > 0)
     {
       switch (event.type)
@@ -120,6 +191,7 @@ int main(int argc, const char **argv)
           on_snapshot(event.packet);
           break;
         };
+        enet_packet_destroy(event.packet);
         break;
       default:
         break;
@@ -135,17 +207,49 @@ int main(int argc, const char **argv)
       for (Entity &e : entities)
         if (e.eid == my_entity)
         {
+//          printf("I'm - %u, pos: %f, %f\n", e.eid, e.x, e.y);
+
           // Update
           float thr = (up ? 1.f : 0.f) + (down ? -1.f : 0.f);
           float steer = (left ? -1.f : 0.f) + (right ? 1.f : 0.f);
 
+          e.thr = thr;
+          e.steer = steer;
+
+          auto old_last_tick = e.last_tick;
+//
+          auto dt_count = static_cast<uint32_t>(static_cast<float>(cur_time - prev_time) / (DT * 1000));
+          prev_time += cur_time - prev_time;
+
+          for (uint32_t t = 0; t < dt_count; t++) {
+            simulate_entity(e, DT);
+            e.last_tick++;
+            snapshotsHistory.push_back({e.last_tick, e.x, e.y, e.ori});
+            inputsHistory.push_back({e.last_tick, e.thr, e.steer});
+//            printf("snapshotsHistory - %zu\n", snapshotsHistory.size());
+//            printf("inputsHistory - %zu\n", inputsHistory.size());
+          }
+
+//          if (old_last_tick != e.last_tick)
+//            inputsHistory.push_back({e.last_tick, e.thr, e.steer});
+
           // Send
-          send_entity_input(serverPeer, my_entity, thr, steer);
+//          printf("I'm - %u, sended - thr: %f, steer: %f\n", e.eid, e.thr, e.steer);
+          send_entity_input(serverPeer, e.eid, e.thr, e.steer);
         }
+        else
+        {
+          interpolate_entity(e, cur_time);
+//          printf("I'm - %u, interpolated - %u\n", my_entity, e.eid);
+//          printf("%zu, %zu\n", snapshots[my_entity].size(), snapshots[e.eid].size());
+        }
+    }
+    else {
+//      printf("iiiiiiiiiiiiiiii\n");
     }
 
     BeginDrawing();
-      ClearBackground(GRAY);
+      ClearBackground(WHITE);
       BeginMode2D(camera);
         for (const Entity &e : entities)
         {

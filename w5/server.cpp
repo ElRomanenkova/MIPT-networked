@@ -6,11 +6,12 @@
 #include <stdlib.h>
 #include <vector>
 #include <map>
+#include "utilities.h"
 
 static std::vector<Entity> entities;
 static std::map<uint16_t, ENetPeer*> controlledMap;
 
-void on_join(ENetPacket *packet, ENetPeer *peer, ENetHost *host)
+void on_join(ENetPacket *packet, ENetPeer *peer, ENetHost *host, uint32_t cur_tick)
 {
   // send all entities
   for (const Entity &ent : entities)
@@ -27,7 +28,7 @@ void on_join(ENetPacket *packet, ENetPeer *peer, ENetHost *host)
                    0x00000044 * (rand() % 5);
   float x = (rand() % 4) * 5.f;
   float y = (rand() % 4) * 5.f;
-  Entity ent = {color, x, y, 0.f, (rand() / RAND_MAX) * 3.141592654f, 0.f, 0.f, newEid};
+  Entity ent = {color, x, y, 0.f, (rand() / RAND_MAX) * 3.141592654f, 0.f, 0.f, newEid, cur_tick};
   entities.push_back(ent);
 
   controlledMap[newEid] = peer;
@@ -45,12 +46,8 @@ void on_input(ENetPacket *packet)
   uint16_t eid = invalid_entity;
   float thr = 0.f; float steer = 0.f;
   deserialize_entity_input(packet, eid, thr, steer);
-  for (Entity &e : entities)
-    if (e.eid == eid)
-    {
-      e.thr = thr;
-      e.steer = steer;
-    }
+  entities[eid].thr = thr;
+  entities[eid].steer = steer;
 }
 
 int main(int argc, const char **argv)
@@ -77,8 +74,8 @@ int main(int argc, const char **argv)
   while (true)
   {
     uint32_t curTime = enet_time_get();
-    float dt = (curTime - lastTime) * 0.001f;
-    lastTime = curTime;
+    auto curTick = static_cast<uint32_t>(static_cast<float>(curTime) / (DT * 1000));
+
     ENetEvent event;
     while (enet_host_service(server, &event, 0) > 0)
     {
@@ -91,7 +88,7 @@ int main(int argc, const char **argv)
         switch (get_packet_type(event.packet))
         {
           case E_CLIENT_TO_SERVER_JOIN:
-            on_join(event.packet, event.peer, server);
+            on_join(event.packet, event.peer, server, curTick);
             break;
           case E_CLIENT_TO_SERVER_INPUT:
             on_input(event.packet);
@@ -103,21 +100,32 @@ int main(int argc, const char **argv)
         break;
       };
     }
-    static int t = 0;
     for (Entity &e : entities)
     {
+//      printf("I'm - %u, pos: %f, %f, input: %f, %f\n", e.eid, e.x, e.y, e.thr, e.steer);
+      auto dt_count = static_cast<uint32_t>(static_cast<float>(curTime - lastTime) / (DT * 1000));
+
       // simulate
-      simulate_entity(e, dt);
+      // MEANING: with variable dt on server and fixed dt on clients difference between simulations is too big
+      for (uint32_t t = 0; t < dt_count; t++) {
+        simulate_entity(e, DT);
+        e.last_tick++;
+      }
+
       // send
       for (size_t i = 0; i < server->peerCount; ++i)
       {
         ENetPeer *peer = &server->peers[i];
         // skip this here in this implementation
         //if (controlledMap[e.eid] != peer)
-        send_snapshot(peer, e.eid, e.x, e.y, e.ori);
+        send_snapshot(peer, e.eid, e.x, e.y, e.ori, e.last_tick);
       }
+//      printf("I'm - %u, pos: %f, %f, input: %f, %f\n", e.eid, e.x, e.y, e.thr, e.steer);
     }
-    usleep(100000);
+    lastTime += curTime - lastTime;
+
+    enet_host_flush(server);
+    usleep(SERVER_USLEEP);
   }
 
   enet_host_destroy(server);

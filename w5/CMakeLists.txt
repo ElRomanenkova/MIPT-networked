@@ -11,12 +11,15 @@ SET(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(W5_SOURCES
     main.cpp
     protocol.cpp
+    entity.cpp
+    utilities.h
     )
 
 set(W5_SERVER_SOURCES
     server.cpp
     protocol.cpp
     entity.cpp
+    utilities.h
     )
 
 
@@ -33,7 +36,7 @@ target_link_libraries(w5 PUBLIC raylib enet)
 
 add_executable(w5_server ${W5_SERVER_SOURCES})
 target_link_libraries(w5_server PUBLIC project_options project_warnings)
-target_link_libraries(w5_server PUBLIC enet)
+target_link_libraries(w5_server PUBLIC raylib enet)
 
 if(MSVC)
   target_link_libraries(w5 PUBLIC ws2_32.lib winmm.lib)
