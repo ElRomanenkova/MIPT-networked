@@ -21,7 +21,6 @@ static std::vector<TickInput> inputsHistory;
 
 void interpolate_entity(Entity& entity, uint32_t cur_time)
 {
-//  auto cur_time = enet_time_get();
   auto snap_time = snapshots[entity.eid][1].time;
 
   while (cur_time > snap_time and snapshots[entity.eid].size() > 2) {
@@ -31,10 +30,8 @@ void interpolate_entity(Entity& entity, uint32_t cur_time)
 
   Snapshot& cur_snap = snapshots[entity.eid][1];
   Snapshot& prev_snap = snapshots[entity.eid][0];
-//  printf("cur - %u, prev - %u\n", cur_snap.time, prev_snap.time);
 
   float t = static_cast<float>(cur_time - prev_snap.time) / static_cast<float>(cur_snap.time - prev_snap.time);
-  printf("%f - %f\n", t, 1.f - t);
 
   entity.x = prev_snap.x + t * (cur_snap.x - prev_snap.x);
   entity.y = prev_snap.y + t * (cur_snap.y - prev_snap.y);
@@ -68,7 +65,6 @@ void on_new_entity_packet(ENetPacket *packet)
 {
   Entity newEntity;
   deserialize_new_entity(packet, newEntity);
-//  printf("---> new ent tick - %u\n", newEntity.last_tick);
   // TODO: Direct adressing, of course!
   for (const Entity &e : entities)
     if (e.eid == newEntity.eid)
@@ -95,7 +91,6 @@ void on_snapshot(ENetPacket *packet)
   if (eid != my_entity) {
     auto t = enet_time_get() + OFFSET;
     snapshots[eid].push_back({t, x, y, ori});
-//    printf("\n---> snapshot: %u, %u, %u, pos: %f, %f\n", t, eid, my_entity, x, y);
   }
   else {
     if (snapshotsHistory.empty() or inputsHistory.empty())
@@ -207,8 +202,6 @@ int main(int argc, const char **argv)
       for (Entity &e : entities)
         if (e.eid == my_entity)
         {
-//          printf("I'm - %u, pos: %f, %f\n", e.eid, e.x, e.y);
-
           // Update
           float thr = (up ? 1.f : 0.f) + (down ? -1.f : 0.f);
           float steer = (left ? -1.f : 0.f) + (right ? 1.f : 0.f);
@@ -216,8 +209,6 @@ int main(int argc, const char **argv)
           e.thr = thr;
           e.steer = steer;
 
-          auto old_last_tick = e.last_tick;
-//
           auto dt_count = static_cast<uint32_t>(static_cast<float>(cur_time - prev_time) / (DT * 1000));
           prev_time += cur_time - prev_time;
 
@@ -226,26 +217,15 @@ int main(int argc, const char **argv)
             e.last_tick++;
             snapshotsHistory.push_back({e.last_tick, e.x, e.y, e.ori});
             inputsHistory.push_back({e.last_tick, e.thr, e.steer});
-//            printf("snapshotsHistory - %zu\n", snapshotsHistory.size());
-//            printf("inputsHistory - %zu\n", inputsHistory.size());
           }
 
-//          if (old_last_tick != e.last_tick)
-//            inputsHistory.push_back({e.last_tick, e.thr, e.steer});
-
           // Send
-//          printf("I'm - %u, sended - thr: %f, steer: %f\n", e.eid, e.thr, e.steer);
           send_entity_input(serverPeer, e.eid, e.thr, e.steer);
         }
         else
         {
           interpolate_entity(e, cur_time);
-//          printf("I'm - %u, interpolated - %u\n", my_entity, e.eid);
-//          printf("%zu, %zu\n", snapshots[my_entity].size(), snapshots[e.eid].size());
         }
-    }
-    else {
-//      printf("iiiiiiiiiiiiiiii\n");
     }
 
     BeginDrawing();

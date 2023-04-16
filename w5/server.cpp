@@ -102,7 +102,6 @@ int main(int argc, const char **argv)
     }
     for (Entity &e : entities)
     {
-//      printf("I'm - %u, pos: %f, %f, input: %f, %f\n", e.eid, e.x, e.y, e.thr, e.steer);
       auto dt_count = static_cast<uint32_t>(static_cast<float>(curTime - lastTime) / (DT * 1000));
 
       // simulate
@@ -120,7 +119,6 @@ int main(int argc, const char **argv)
         //if (controlledMap[e.eid] != peer)
         send_snapshot(peer, e.eid, e.x, e.y, e.ori, e.last_tick);
       }
-//      printf("I'm - %u, pos: %f, %f, input: %f, %f\n", e.eid, e.x, e.y, e.thr, e.steer);
     }
     lastTime += curTime - lastTime;
 
