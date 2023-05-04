@@ -4,10 +4,12 @@
 #include "raylib.h"
 #include <enet/enet.h>
 #include <math.h>
+#include <assert.h>
 
 #include <vector>
 #include "entity.h"
 #include "protocol.h"
+#include "quantisation.h"
 
 
 static std::vector<Entity> entities;
@@ -44,8 +46,54 @@ void on_snapshot(ENetPacket *packet)
     }
 }
 
+bool is_quantized_successfully(float x, float y, float lo, float hi, int num_bits)
+{
+  int range = (1 << num_bits) - 1;
+  return abs(x - y) < (hi - lo) / static_cast<float>(range);
+}
+
+void testing()
+{
+  PackedFloat<uint8_t, 4> packedFloat1(0.1f, -1.f, 1.f);
+  auto unpackedFloat1 = packedFloat1.unpack(-1.f, 1.f);
+  assert(is_quantized_successfully(unpackedFloat1, 0.1f, -1.f, 1.f, 4));
+
+  PackedFloat2<uint16_t, 8, 8> packedFloat2({4.f, -5.f}, {-10.f, -10.f}, {10.f, 10.f});
+  auto unpackedFloat2 = packedFloat2.unpack({-10.f, -10.f}, {10.f, 10.f});
+  assert(is_quantized_successfully(unpackedFloat2.x, 4.f, -10.f, 10.f, 8));
+  assert(is_quantized_successfully(unpackedFloat2.y, -5.f, -10.f, 10.f, 8));
+
+  PackedFloat3<uint32_t, 11, 10, 11> packedFloat3({0.1f, -0.2f, 0.3f}, {-1.f, -1.f, -1.f}, {1.f, 1.f, 1.f});
+  auto unpackedFloat3 = packedFloat3.unpack({-1.f, -1.f, -1.f}, {1.f, 1.f, 1.f});
+  assert(is_quantized_successfully(unpackedFloat3.x, 0.1f, -1.f, 1.f, 11));
+  assert(is_quantized_successfully(unpackedFloat3.y, -0.2f, -1.f, 1.f, 10));
+  assert(is_quantized_successfully(unpackedFloat3.z, 0.3f, -1.f, 1.f, 11));
+
+  printf("Part1: Test passed successfully!\n");
+
+  auto* mem = (uint8_t *)malloc(sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint32_t));
+  auto b1 = Bitstream(mem);
+  auto b2 = Bitstream(mem);
+  uint32_t val = 0;
+
+  b1.write_packed_uint(111u);
+  b1.write_packed_uint(2222u);
+  b1.write_packed_uint(333444555u);
+
+  b2.read_packed_uint(val);
+  assert(val == 111);
+  b2.read_packed_uint(val);
+  assert(val == 2222);
+  b2.read_packed_uint(val);
+  assert(val == 333444555);
+
+  printf("Part2: Test passed successfully!\n");
+}
+
 int main(int argc, const char **argv)
 {
+  testing();
+
   if (enet_initialize() != 0)
   {
     printf("Cannot init ENet");
