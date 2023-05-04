@@ -2,6 +2,7 @@
 #include <enet/enet.h>
 #include <cstdint>
 #include "entity.h"
+#include "bitstream.h"
 
 enum MessageType : uint8_t
 {
