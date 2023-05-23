@@ -40,17 +40,19 @@ void on_join(ENetPacket *packet, ENetPeer *peer, ENetHost *host)
   send_set_controlled_entity(peer, newEid);
 }
 
-void on_input(ENetPacket *packet)
+void on_input(ENetPacket *packet, ENetPeer* peer)
 {
   uint16_t eid = invalid_entity;
   float thr = 0.f; float steer = 0.f;
-  deserialize_entity_input(packet, eid, thr, steer);
+  uint16_t new_ref_id = 0;
+  deserialize_entity_input(packet, eid, thr, steer, new_ref_id);
   for (Entity &e : entities)
     if (e.eid == eid)
     {
       e.thr = thr;
       e.steer = steer;
     }
+  send_input_ack(peer, new_ref_id);
 }
 
 int main(int argc, const char **argv)
@@ -94,7 +96,7 @@ int main(int argc, const char **argv)
             on_join(event.packet, event.peer, server);
             break;
           case E_CLIENT_TO_SERVER_INPUT:
-            on_input(event.packet);
+            on_input(event.packet, event.peer);
             break;
         };
         enet_packet_destroy(event.packet);

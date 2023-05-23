@@ -15,6 +15,9 @@
 static std::vector<Entity> entities;
 static uint16_t my_entity = invalid_entity;
 
+static uint16_t cur_input_id = 0;
+static InputHistory localInputHistory;
+
 void on_new_entity_packet(ENetPacket *packet)
 {
   Entity newEntity;
@@ -29,6 +32,11 @@ void on_new_entity_packet(ENetPacket *packet)
 void on_set_controlled_entity(ENetPacket *packet)
 {
   deserialize_set_controlled_entity(packet, my_entity);
+}
+
+void on_input_ack(ENetPacket* packet, uint16_t& ref_id)
+{
+  deserialize_input_ack(packet, ref_id);
 }
 
 void on_snapshot(ENetPacket *packet)
@@ -138,6 +146,8 @@ int main(int argc, const char **argv)
   camera.rotation = 0.f;
   camera.zoom = 10.f;
 
+  localInputHistory.reference_id = cur_input_id;
+  localInputHistory.inputHistory.push_back({cur_input_id, 0, 0});
 
   SetTargetFPS(60);               // Set our game to run at 60 frames-per-second
 
@@ -167,6 +177,12 @@ int main(int argc, const char **argv)
         case E_SERVER_TO_CLIENT_SNAPSHOT:
           on_snapshot(event.packet);
           break;
+        case E_SERVER_TO_CLIENT_INPUT_ACK:
+          on_input_ack(event.packet, localInputHistory.reference_id);
+          std::erase_if(localInputHistory.inputHistory, [](auto& localInput) {
+            return localInput.id < localInputHistory.reference_id;
+          });
+          break;
         };
         enet_packet_destroy(event.packet);
         break;
@@ -185,11 +201,26 @@ int main(int argc, const char **argv)
         if (e.eid == my_entity)
         {
           // Update
+          uint8_t header = 0x0;
           float thr = (up ? 1.f : 0.f) + (down ? -1.f : 0.f);
           float steer = (left ? -1.f : 0.f) + (right ? 1.f : 0.f);
 
+          Input cur_input = {cur_input_id++, thr, steer};
+          localInputHistory.inputHistory.push_back(cur_input);
+
+          for (Input& input : localInputHistory.inputHistory)
+          {
+            if (input.id == localInputHistory.reference_id)
+            {
+              if (input.steer != cur_input.steer || input.thr != cur_input.thr) {
+                header = 0x80;
+              }
+              break;
+            }
+          }
+
           // Send
-          send_entity_input(serverPeer, my_entity, thr, steer);
+          send_entity_input(serverPeer, my_entity, thr, steer, header, cur_input_id, localInputHistory.reference_id);
         }
     }
 
