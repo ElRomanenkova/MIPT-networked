@@ -62,7 +62,7 @@ void send_client_ping(const Clients& clients)
     {
       if (client_to.second.name != client_from.second.name)
       {
-        std::string buffer = client_from.second.name + " is alive!";
+        std::string buffer = client_from.second.name + ": rtt - " + std::to_string(client_from.first->roundTripTime);
         ENetPacket *packet = enet_packet_create(buffer.c_str(), strlen(buffer.c_str()) + 1, ENET_PACKET_FLAG_UNSEQUENCED);
         enet_peer_send(client_to.first, 1, packet);
       }
